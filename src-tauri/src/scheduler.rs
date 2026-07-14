@@ -26,25 +26,44 @@ impl Scheduler {
     fn execute_shutdown() -> Result<(), String> {
         #[cfg(target_os = "windows")]
         {
-            std::process::Command::new("shutdown")
+            let status = std::process::Command::new("shutdown")
                 .args(["/s", "/t", "0"])
-                .spawn()
-                .map_err(|e| format!("Failed to spawn shutdown command: {}", e))?;
+                .status()
+                .map_err(|e| format!("Failed to execute shutdown command: {}", e))?;
+            if !status.success() {
+                tracing::warn!("Shutdown command returned non-zero status: {}", status);
+            }
         }
         #[cfg(target_os = "macos")]
         {
-            std::process::Command::new("sudo")
-                .args(["shutdown", "-h", "now"])
-                .spawn()
-                .map_err(|e| format!("Failed to spawn shutdown command: {}", e))?;
+            let status = std::process::Command::new("osascript")
+                .args(["-e", "tell application \"System Events\" to shut down"])
+                .status()
+                .map_err(|e| format!("Failed to execute shutdown command: {}", e))?;
+            if !status.success() {
+                tracing::warn!("Shutdown command returned non-zero status: {}", status);
+            }
         }
         #[cfg(target_os = "linux")]
         {
-            std::process::Command::new("shutdown")
-                .arg("-h")
-                .arg("now")
-                .spawn()
-                .map_err(|e| format!("Failed to spawn shutdown command: {}", e))?;
+            if let Ok(status) = std::process::Command::new("systemctl")
+                .arg("poweroff")
+                .status()
+            {
+                if status.success() {
+                    return Ok(());
+                }
+                tracing::warn!("systemctl poweroff returned non-zero status: {}", status);
+            }
+            
+            tracing::info!("Trying shutdown command as fallback");
+            let status = std::process::Command::new("shutdown")
+                .args(["-h", "now"])
+                .status()
+                .map_err(|e| format!("Failed to execute shutdown command: {}", e))?;
+            if !status.success() {
+                tracing::warn!("Shutdown command returned non-zero status: {}", status);
+            }
         }
         Ok(())
     }
@@ -52,23 +71,43 @@ impl Scheduler {
     fn execute_reboot() -> Result<(), String> {
         #[cfg(target_os = "windows")]
         {
-            std::process::Command::new("shutdown")
+            let status = std::process::Command::new("shutdown")
                 .args(["/r", "/t", "0"])
-                .spawn()
-                .map_err(|e| format!("Failed to spawn reboot command: {}", e))?;
+                .status()
+                .map_err(|e| format!("Failed to execute reboot command: {}", e))?;
+            if !status.success() {
+                tracing::warn!("Reboot command returned non-zero status: {}", status);
+            }
         }
         #[cfg(target_os = "macos")]
         {
-            std::process::Command::new("sudo")
-                .args(["shutdown", "-r", "now"])
-                .spawn()
-                .map_err(|e| format!("Failed to spawn reboot command: {}", e))?;
+            let status = std::process::Command::new("osascript")
+                .args(["-e", "tell application \"System Events\" to restart"])
+                .status()
+                .map_err(|e| format!("Failed to execute reboot command: {}", e))?;
+            if !status.success() {
+                tracing::warn!("Reboot command returned non-zero status: {}", status);
+            }
         }
         #[cfg(target_os = "linux")]
         {
-            std::process::Command::new("reboot")
-                .spawn()
-                .map_err(|e| format!("Failed to spawn reboot command: {}", e))?;
+            if let Ok(status) = std::process::Command::new("systemctl")
+                .arg("reboot")
+                .status()
+            {
+                if status.success() {
+                    return Ok(());
+                }
+                tracing::warn!("systemctl reboot returned non-zero status: {}", status);
+            }
+            
+            tracing::info!("Trying reboot command as fallback");
+            let status = std::process::Command::new("reboot")
+                .status()
+                .map_err(|e| format!("Failed to execute reboot command: {}", e))?;
+            if !status.success() {
+                tracing::warn!("Reboot command returned non-zero status: {}", status);
+            }
         }
         Ok(())
     }
@@ -76,24 +115,48 @@ impl Scheduler {
     fn execute_sleep() -> Result<(), String> {
         #[cfg(target_os = "windows")]
         {
-            std::process::Command::new("rundll32")
+            let status = std::process::Command::new("rundll32")
                 .args(["powrprof.dll,SetSuspendState", "0,1,0"])
-                .spawn()
-                .map_err(|e| format!("Failed to spawn sleep command: {}", e))?;
+                .status()
+                .map_err(|e| format!("Failed to execute sleep command: {}", e))?;
+            if !status.success() {
+                tracing::warn!("Sleep command returned non-zero status: {}", status);
+            }
         }
         #[cfg(target_os = "macos")]
         {
-            std::process::Command::new("pmset")
+            let status = std::process::Command::new("pmset")
                 .arg("sleepnow")
-                .spawn()
-                .map_err(|e| format!("Failed to spawn sleep command: {}", e))?;
+                .status()
+                .map_err(|e| format!("Failed to execute sleep command: {}", e))?;
+            if !status.success() {
+                tracing::warn!("Sleep command returned non-zero status: {}", status);
+            }
         }
         #[cfg(target_os = "linux")]
         {
-            std::process::Command::new("systemctl")
-                .arg("suspend")
-                .spawn()
-                .map_err(|e| format!("Failed to spawn suspend command: {}", e))?;
+            let mut methods = vec![
+                ("systemctl", vec!["suspend"]),
+                ("systemctl", vec!["hibernate"]),
+                ("pm-suspend", vec![]),
+            ];
+            
+            for (cmd, args) in methods {
+                if let Ok(status) = std::process::Command::new(cmd).args(&args).status() {
+                    if status.success() {
+                        return Ok(());
+                    }
+                    tracing::warn!("{} {:?} returned non-zero status: {}", cmd, args, status);
+                }
+            }
+            
+            if let Ok(mut file) = std::fs::OpenOptions::new().write(true).open("/sys/power/state") {
+                if std::io::Write::write_all(&mut file, b"mem\n").is_ok() {
+                    return Ok(());
+                }
+            }
+            
+            return Err("No suitable sleep method found".to_string());
         }
         Ok(())
     }
@@ -133,14 +196,13 @@ impl Scheduler {
 
         loop {
             let elapsed = start.elapsed();
-            let remaining = total_duration.saturating_sub(elapsed);
 
             if *cancel_rx.borrow() {
                 let _ = app_handle.emit("task-cancelled", json!({ "id": task_id }));
                 break;
             }
 
-            if remaining.as_secs() == 0 {
+            if elapsed >= total_duration {
                 Self::execute_task(&app_handle, &task_id, &task_type, &title, &payload);
                 let mut tasks = tasks_map.lock().await;
                 tasks.remove(&task_id);
@@ -148,6 +210,7 @@ impl Scheduler {
                 break;
             }
 
+            let remaining = total_duration.saturating_sub(elapsed);
             let _ = app_handle.emit(
                 "timer-tick",
                 json!({
@@ -201,6 +264,7 @@ impl Scheduler {
                                 "id": task_id,
                                 "type": "shutdown",
                                 "title": title,
+                                "action": action,
                                 "success": true,
                             }),
                         );

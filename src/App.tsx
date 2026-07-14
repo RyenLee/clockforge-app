@@ -4,7 +4,6 @@ import { PageHeader } from './components/PageHeader';
 import { Dashboard, ShutdownTimer, NotificationTimer, TaskList, Stopwatch } from './pages';
 import { useNavigationStore } from './stores/navigationStore';
 import { useEffect, useState } from 'react';
-import { listen } from '@tauri-apps/api/event';
 
 interface Toast {
   id: number;
@@ -35,13 +34,20 @@ function App() {
       if (payload.success === false) {
         showToast('操作失败', payload.error || '执行系统命令时发生错误', 'error');
       } else {
-        showToast(payload.title || '系统操作', '即将执行系统操作...', 'info');
+        const actionNames: Record<string, string> = {
+          shutdown: '关机',
+          reboot: '重启',
+          sleep: '休眠',
+        };
+        const actionName = actionNames[payload.action] || '系统操作';
+        showToast(payload.title || actionName, `即将${actionName}...`, 'info');
       }
     }
   };
 
     const setupListeners = async () => {
       try {
+        const { listen } = await import('@tauri-apps/api/event');
         await listen('timer-tick', () => { });
         await listen('task-triggered', (event) => {
           handleTaskTriggered({ detail: event.payload } as CustomEvent);

@@ -1,6 +1,24 @@
 import type { Task, StopwatchStateData, LapRecord } from '../types';
 
-const isTauri = typeof window !== 'undefined' && !!(window as any).__TAURI__?.core?.invoke;
+let tauriInvoke: ((command: string, args?: Record<string, unknown>) => Promise<unknown>) | null = null;
+
+async function loadTauriInvoke(): Promise<((command: string, args?: Record<string, unknown>) => Promise<unknown>) | null> {
+  if (tauriInvoke !== null) {
+    return tauriInvoke;
+  }
+
+  if (typeof window !== 'undefined' && !!(window as any).__TAURI__?.core?.invoke) {
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      tauriInvoke = invoke;
+      return invoke;
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
+}
 
 let mockTasks: Task[] = [
   {
@@ -38,13 +56,13 @@ let stopwatchState: StopwatchStateData = {
 };
 
 async function safeInvoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {
-  if (isTauri) {
-    const { invoke } = await import('@tauri-apps/api/core');
-    return invoke(command, args);
+  const invoke = await loadTauriInvoke();
+  if (invoke) {
+    return invoke(command, args) as Promise<T>;
   }
-  
+
   console.warn(`[Browser Mode] Mocking Tauri command: ${command}`, args);
-  
+
   switch (command) {
     case 'get_dashboard_stats':
       return {
@@ -54,7 +72,7 @@ async function safeInvoke<T>(command: string, args?: Record<string, unknown>): P
         cancelled: mockTasks.filter(t => t.status === 'cancelled').length,
         recent_tasks: [...mockTasks].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, 5),
       } as T;
-    
+
     case 'get_all_tasks':
       let filtered = [...mockTasks];
       if (args?.status) {
@@ -64,10 +82,10 @@ async function safeInvoke<T>(command: string, args?: Record<string, unknown>): P
         filtered = filtered.filter(t => t.task_type === args.task_type);
       }
       return filtered as T;
-    
+
     case 'get_task_by_id':
       return mockTasks.find(t => t.id === args?.id) as unknown as T;
-    
+
     case 'create_task': {
       const now = new Date().toISOString();
       const newTask: Task = {
@@ -85,11 +103,11 @@ async function safeInvoke<T>(command: string, args?: Record<string, unknown>): P
       mockTasks.push(newTask);
       return newTask as unknown as T;
     }
-    
+
     case 'delete_task':
       mockTasks = mockTasks.filter(t => t.id !== args?.id);
       return undefined as unknown as T;
-    
+
     case 'cancel_task': {
       const task = mockTasks.find(t => t.id === args?.id);
       if (task) {
@@ -98,25 +116,52 @@ async function safeInvoke<T>(command: string, args?: Record<string, unknown>): P
       }
       return task as unknown as T;
     }
-    
+
     case 'start_shutdown_timer': {
       const now = new Date().toISOString();
+      const delaySeconds = (args?.delay_seconds as number) || 300;
       const newTask: Task = {
         id: `mock-${Date.now()}`,
         title: (args?.title as string) || `关机倒计时`,
         task_type: 'shutdown',
         status: 'running',
         payload: JSON.stringify({ action: args?.action || 'shutdown' }),
-        scheduled_at: new Date(Date.now() + (args?.delay_seconds as number) * 1000).toISOString(),
+        scheduled_at: new Date(Date.now() + delaySeconds * 1000).toISOString(),
         created_at: now,
         updated_at: now,
         executed_at: undefined,
         cron_expr: undefined,
       };
       mockTasks.push(newTask);
+
+      setTimeout(() => {
+        const task = mockTasks.find(t => t.id === newTask.id);
+        if (task && task.status === 'running') {
+          task.status = 'completed';
+          task.updated_at = new Date().toISOString();
+          task.executed_at = new Date().toISOString();
+
+          const payload = JSON.parse(task.payload || '{}');
+          console.log('[Mock] Shutdown task triggered:', payload);
+
+          if (typeof window !== 'undefined') {
+            const event = new CustomEvent('task-triggered', {
+              detail: {
+                id: task.id,
+                type: 'shutdown',
+                title: task.title,
+                action: payload.action || 'shutdown',
+                success: true,
+              },
+            });
+            window.dispatchEvent(event);
+          }
+        }
+      }, delaySeconds * 1000);
+
       return newTask as unknown as T;
     }
-    
+
     case 'stop_shutdown_timer': {
       const task = mockTasks.find(t => t.id === args?.task_id);
       if (task) {
@@ -125,7 +170,7 @@ async function safeInvoke<T>(command: string, args?: Record<string, unknown>): P
       }
       return undefined as unknown as T;
     }
-    
+
     case 'start_notification_timer': {
       const now = new Date().toISOString();
       const delaySeconds = (args?.delay_seconds as number) || 300;
@@ -142,17 +187,17 @@ async function safeInvoke<T>(command: string, args?: Record<string, unknown>): P
         cron_expr: undefined,
       };
       mockTasks.push(newTask);
-      
+
       setTimeout(() => {
         const task = mockTasks.find(t => t.id === newTask.id);
         if (task && task.status === 'running') {
           task.status = 'completed';
           task.updated_at = new Date().toISOString();
           task.executed_at = new Date().toISOString();
-          
+
           const payload = JSON.parse(task.payload || '{}');
           console.log('[Mock] Notification triggered:', payload);
-          
+
           if (typeof window !== 'undefined') {
             const event = new CustomEvent('task-triggered', {
               detail: {
@@ -166,10 +211,10 @@ async function safeInvoke<T>(command: string, args?: Record<string, unknown>): P
           }
         }
       }, delaySeconds * 1000);
-      
+
       return newTask as unknown as T;
     }
-    
+
     case 'stop_notification_timer': {
       const task = mockTasks.find(t => t.id === args?.task_id);
       if (task) {
@@ -178,7 +223,7 @@ async function safeInvoke<T>(command: string, args?: Record<string, unknown>): P
       }
       return undefined as unknown as T;
     }
-    
+
     case 'stopwatch_start': {
       stopwatchState = {
         mode: ((args?.mode as string) || 'stopwatch') as 'stopwatch' | 'countdown',
@@ -189,15 +234,15 @@ async function safeInvoke<T>(command: string, args?: Record<string, unknown>): P
       };
       return undefined as unknown as T;
     }
-    
+
     case 'stopwatch_pause':
       stopwatchState.status = 'paused';
       return undefined as unknown as T;
-    
+
     case 'stopwatch_resume':
       stopwatchState.status = 'running';
       return undefined as unknown as T;
-    
+
     case 'stopwatch_reset':
       stopwatchState = {
         mode: 'stopwatch',
@@ -207,7 +252,7 @@ async function safeInvoke<T>(command: string, args?: Record<string, unknown>): P
         laps: [],
       };
       return undefined as unknown as T;
-    
+
     case 'stopwatch_lap': {
       const lap: LapRecord = {
         id: undefined,
@@ -218,13 +263,13 @@ async function safeInvoke<T>(command: string, args?: Record<string, unknown>): P
       stopwatchState.laps.push(lap);
       return lap as unknown as T;
     }
-    
+
     case 'stopwatch_get_state':
       return stopwatchState as unknown as T;
-    
+
     default:
       throw new Error(`Unsupported mock command: ${command}`);
   }
 }
 
-export { safeInvoke, isTauri };
+export { safeInvoke };

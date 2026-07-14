@@ -8,7 +8,15 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build",
+    "tauri:build:windows": "tauri build --target x86_64-pc-windows-msvc",
+    "tauri:build:macos": "tauri build --target aarch64-apple-darwin",
+    "tauri:build:linux": "tauri build --target x86_64-unknown-linux-gnu",
+    "tauri:bundle": "tauri build --bundle",
+    "tauri:check": "tauri check",
+    "build:all": "npm run tauri:build"
   },
   "dependencies": {
     "@tailwindcss/postcss": "^4.3.2",

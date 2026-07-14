@@ -1,19 +1,20 @@
-import { getCurrentWindow } from '@tauri-apps/api/window';
-
 export function TitleBar() {
-  const getAppWindow = () => {
+  let appWindow: any = null;
+  
+  const getAppWindow = async () => {
+    if (appWindow) return appWindow;
     try {
-      return getCurrentWindow();
+      const { getCurrentWindow } = await import('@tauri-apps/api/window');
+      appWindow = getCurrentWindow();
+      return appWindow;
     } catch {
       return null;
     }
   };
 
-  const appWindow = getAppWindow();
-
-  const handleMinimize = () => appWindow?.minimize().catch(() => {});
-  const handleMaximize = () => appWindow?.toggleMaximize().catch(() => {});
-  const handleClose = () => appWindow?.close().catch(() => {});
+  const handleMinimize = async () => (await getAppWindow())?.minimize().catch(() => {});
+  const handleMaximize = async () => (await getAppWindow())?.toggleMaximize().catch(() => {});
+  const handleClose = async () => (await getAppWindow())?.close().catch(() => {});
 
   return (
     <div
