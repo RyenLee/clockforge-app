@@ -26,44 +26,32 @@ impl Scheduler {
     fn execute_shutdown() -> Result<(), String> {
         #[cfg(target_os = "windows")]
         {
-            let status = std::process::Command::new("shutdown")
+            std::process::Command::new("shutdown")
                 .args(["/s", "/t", "0"])
-                .status()
-                .map_err(|e| format!("Failed to execute shutdown command: {}", e))?;
-            if !status.success() {
-                tracing::warn!("Shutdown command returned non-zero status: {}", status);
-            }
+                .spawn()
+                .map_err(|e| format!("Failed to spawn shutdown command: {}", e))?;
         }
         #[cfg(target_os = "macos")]
         {
-            let status = std::process::Command::new("osascript")
+            std::process::Command::new("osascript")
                 .args(["-e", "tell application \"System Events\" to shut down"])
-                .status()
-                .map_err(|e| format!("Failed to execute shutdown command: {}", e))?;
-            if !status.success() {
-                tracing::warn!("Shutdown command returned non-zero status: {}", status);
-            }
+                .spawn()
+                .map_err(|e| format!("Failed to spawn shutdown command: {}", e))?;
         }
         #[cfg(target_os = "linux")]
         {
-            if let Ok(status) = std::process::Command::new("systemctl")
+            if std::process::Command::new("systemctl")
                 .arg("poweroff")
-                .status()
+                .spawn()
+                .is_ok()
             {
-                if status.success() {
-                    return Ok(());
-                }
-                tracing::warn!("systemctl poweroff returned non-zero status: {}", status);
+                return Ok(());
             }
-            
-            tracing::info!("Trying shutdown command as fallback");
-            let status = std::process::Command::new("shutdown")
+            tracing::info!("systemctl poweroff failed, trying shutdown command as fallback");
+            std::process::Command::new("shutdown")
                 .args(["-h", "now"])
-                .status()
-                .map_err(|e| format!("Failed to execute shutdown command: {}", e))?;
-            if !status.success() {
-                tracing::warn!("Shutdown command returned non-zero status: {}", status);
-            }
+                .spawn()
+                .map_err(|e| format!("Failed to spawn shutdown command: {}", e))?;
         }
         Ok(())
     }
@@ -71,43 +59,31 @@ impl Scheduler {
     fn execute_reboot() -> Result<(), String> {
         #[cfg(target_os = "windows")]
         {
-            let status = std::process::Command::new("shutdown")
+            std::process::Command::new("shutdown")
                 .args(["/r", "/t", "0"])
-                .status()
-                .map_err(|e| format!("Failed to execute reboot command: {}", e))?;
-            if !status.success() {
-                tracing::warn!("Reboot command returned non-zero status: {}", status);
-            }
+                .spawn()
+                .map_err(|e| format!("Failed to spawn reboot command: {}", e))?;
         }
         #[cfg(target_os = "macos")]
         {
-            let status = std::process::Command::new("osascript")
+            std::process::Command::new("osascript")
                 .args(["-e", "tell application \"System Events\" to restart"])
-                .status()
-                .map_err(|e| format!("Failed to execute reboot command: {}", e))?;
-            if !status.success() {
-                tracing::warn!("Reboot command returned non-zero status: {}", status);
-            }
+                .spawn()
+                .map_err(|e| format!("Failed to spawn reboot command: {}", e))?;
         }
         #[cfg(target_os = "linux")]
         {
-            if let Ok(status) = std::process::Command::new("systemctl")
+            if std::process::Command::new("systemctl")
                 .arg("reboot")
-                .status()
+                .spawn()
+                .is_ok()
             {
-                if status.success() {
-                    return Ok(());
-                }
-                tracing::warn!("systemctl reboot returned non-zero status: {}", status);
+                return Ok(());
             }
-            
-            tracing::info!("Trying reboot command as fallback");
-            let status = std::process::Command::new("reboot")
-                .status()
-                .map_err(|e| format!("Failed to execute reboot command: {}", e))?;
-            if !status.success() {
-                tracing::warn!("Reboot command returned non-zero status: {}", status);
-            }
+            tracing::info!("systemctl reboot failed, trying reboot command as fallback");
+            std::process::Command::new("reboot")
+                .spawn()
+                .map_err(|e| format!("Failed to spawn reboot command: {}", e))?;
         }
         Ok(())
     }
