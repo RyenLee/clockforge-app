@@ -26,32 +26,88 @@ impl Scheduler {
     fn execute_shutdown() -> Result<(), String> {
         #[cfg(target_os = "windows")]
         {
-            std::process::Command::new("shutdown")
+            let mut child = std::process::Command::new("shutdown")
                 .args(["/s", "/t", "0"])
                 .spawn()
                 .map_err(|e| format!("Failed to spawn shutdown command: {}", e))?;
+
+            match child.try_wait() {
+                Ok(Some(status)) => {
+                    if !status.success() {
+                        return Err(format!("Shutdown command failed with status: {}", status));
+                    }
+                }
+                Ok(None) => {
+                    tracing::info!("Shutdown command started, system will shut down shortly");
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to check shutdown command status: {}", e);
+                }
+            }
         }
         #[cfg(target_os = "macos")]
         {
-            std::process::Command::new("osascript")
+            let mut child = std::process::Command::new("osascript")
                 .args(["-e", "tell application \"System Events\" to shut down"])
                 .spawn()
                 .map_err(|e| format!("Failed to spawn shutdown command: {}", e))?;
+
+            match child.try_wait() {
+                Ok(Some(status)) => {
+                    if !status.success() {
+                        return Err(format!("Shutdown command failed with status: {}", status));
+                    }
+                }
+                Ok(None) => {
+                    tracing::info!("Shutdown command started, system will shut down shortly");
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to check shutdown command status: {}", e);
+                }
+            }
         }
         #[cfg(target_os = "linux")]
         {
-            if std::process::Command::new("systemctl")
+            if let Ok(mut child) = std::process::Command::new("systemctl")
                 .arg("poweroff")
                 .spawn()
-                .is_ok()
             {
-                return Ok(());
+                match child.try_wait() {
+                    Ok(Some(status)) => {
+                        if !status.success() {
+                            tracing::warn!("systemctl poweroff failed with status: {}", status);
+                        } else {
+                            return Ok(());
+                        }
+                    }
+                    Ok(None) => {
+                        return Ok(());
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to check systemctl poweroff status: {}", e);
+                    }
+                }
             }
+
             tracing::info!("systemctl poweroff failed, trying shutdown command as fallback");
-            std::process::Command::new("shutdown")
+            let mut child = std::process::Command::new("shutdown")
                 .args(["-h", "now"])
                 .spawn()
                 .map_err(|e| format!("Failed to spawn shutdown command: {}", e))?;
+
+            match child.try_wait() {
+                Ok(Some(status)) => {
+                    if !status.success() {
+                        return Err(format!("Shutdown command failed with status: {}", status));
+                    }
+                }
+                Ok(None) => {
+                    tracing::info!("Shutdown command started, system will shut down shortly");
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to check shutdown command status: {}", e);
+                }
+            }
         }
         Ok(())
     }
@@ -59,31 +115,87 @@ impl Scheduler {
     fn execute_reboot() -> Result<(), String> {
         #[cfg(target_os = "windows")]
         {
-            std::process::Command::new("shutdown")
+            let mut child = std::process::Command::new("shutdown")
                 .args(["/r", "/t", "0"])
                 .spawn()
                 .map_err(|e| format!("Failed to spawn reboot command: {}", e))?;
+
+            match child.try_wait() {
+                Ok(Some(status)) => {
+                    if !status.success() {
+                        return Err(format!("Reboot command failed with status: {}", status));
+                    }
+                }
+                Ok(None) => {
+                    tracing::info!("Reboot command started, system will reboot shortly");
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to check reboot command status: {}", e);
+                }
+            }
         }
         #[cfg(target_os = "macos")]
         {
-            std::process::Command::new("osascript")
+            let mut child = std::process::Command::new("osascript")
                 .args(["-e", "tell application \"System Events\" to restart"])
                 .spawn()
                 .map_err(|e| format!("Failed to spawn reboot command: {}", e))?;
+
+            match child.try_wait() {
+                Ok(Some(status)) => {
+                    if !status.success() {
+                        return Err(format!("Reboot command failed with status: {}", status));
+                    }
+                }
+                Ok(None) => {
+                    tracing::info!("Reboot command started, system will reboot shortly");
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to check reboot command status: {}", e);
+                }
+            }
         }
         #[cfg(target_os = "linux")]
         {
-            if std::process::Command::new("systemctl")
+            if let Ok(mut child) = std::process::Command::new("systemctl")
                 .arg("reboot")
                 .spawn()
-                .is_ok()
             {
-                return Ok(());
+                match child.try_wait() {
+                    Ok(Some(status)) => {
+                        if !status.success() {
+                            tracing::warn!("systemctl reboot failed with status: {}", status);
+                        } else {
+                            return Ok(());
+                        }
+                    }
+                    Ok(None) => {
+                        return Ok(());
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to check systemctl reboot status: {}", e);
+                    }
+                }
             }
+
             tracing::info!("systemctl reboot failed, trying reboot command as fallback");
-            std::process::Command::new("reboot")
+            let mut child = std::process::Command::new("reboot")
                 .spawn()
                 .map_err(|e| format!("Failed to spawn reboot command: {}", e))?;
+
+            match child.try_wait() {
+                Ok(Some(status)) => {
+                    if !status.success() {
+                        return Err(format!("Reboot command failed with status: {}", status));
+                    }
+                }
+                Ok(None) => {
+                    tracing::info!("Reboot command started, system will reboot shortly");
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to check reboot command status: {}", e);
+                }
+            }
         }
         Ok(())
     }
@@ -91,22 +203,30 @@ impl Scheduler {
     fn execute_sleep() -> Result<(), String> {
         #[cfg(target_os = "windows")]
         {
-            let status = std::process::Command::new("rundll32")
+            let mut child = std::process::Command::new("rundll32")
                 .args(["powrprof.dll,SetSuspendState", "0,1,0"])
-                .status()
-                .map_err(|e| format!("Failed to execute sleep command: {}", e))?;
+                .spawn()
+                .map_err(|e| format!("Failed to spawn sleep command: {}", e))?;
+
+            let status = child
+                .wait()
+                .map_err(|e| format!("Failed to wait for sleep command: {}", e))?;
             if !status.success() {
-                tracing::warn!("Sleep command returned non-zero status: {}", status);
+                return Err(format!("Sleep command failed with status: {}", status));
             }
         }
         #[cfg(target_os = "macos")]
         {
-            let status = std::process::Command::new("pmset")
+            let mut child = std::process::Command::new("pmset")
                 .arg("sleepnow")
-                .status()
-                .map_err(|e| format!("Failed to execute sleep command: {}", e))?;
+                .spawn()
+                .map_err(|e| format!("Failed to spawn sleep command: {}", e))?;
+
+            let status = child
+                .wait()
+                .map_err(|e| format!("Failed to wait for sleep command: {}", e))?;
             if !status.success() {
-                tracing::warn!("Sleep command returned non-zero status: {}", status);
+                return Err(format!("Sleep command failed with status: {}", status));
             }
         }
         #[cfg(target_os = "linux")]
@@ -116,22 +236,28 @@ impl Scheduler {
                 ("systemctl", vec!["hibernate"]),
                 ("pm-suspend", vec![]),
             ];
-            
+
             for (cmd, args) in methods {
-                if let Ok(status) = std::process::Command::new(cmd).args(&args).status() {
+                if let Ok(mut child) = std::process::Command::new(cmd).args(&args).spawn() {
+                    let status = child
+                        .wait()
+                        .map_err(|e| format!("Failed to wait for {}: {}", cmd, e))?;
                     if status.success() {
                         return Ok(());
                     }
                     tracing::warn!("{} {:?} returned non-zero status: {}", cmd, args, status);
                 }
             }
-            
-            if let Ok(mut file) = std::fs::OpenOptions::new().write(true).open("/sys/power/state") {
+
+            if let Ok(mut file) = std::fs::OpenOptions::new()
+                .write(true)
+                .open("/sys/power/state")
+            {
                 if std::io::Write::write_all(&mut file, b"mem\n").is_ok() {
                     return Ok(());
                 }
             }
-            
+
             return Err("No suitable sleep method found".to_string());
         }
         Ok(())
